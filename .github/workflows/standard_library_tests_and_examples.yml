@@ -44,10 +44,20 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+      - name: update-homebrew
+        if: ${{ matrix.os == 'macos-14' }}
+        run: |
+          brew update
+          brew doctor
+          brew tap --verbose modularml/packages
+          brew doctor
+          brew install modular
 
       - name: Download Modular installer
         run: |
+          
           curl -s https://get.modular.com | sh -
+          
 
       - name: Install nightly Mojo compiler
         run: |
