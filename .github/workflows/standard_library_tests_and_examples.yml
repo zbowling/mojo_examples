@@ -49,6 +49,8 @@ jobs:
         run: |
           brew update
           brew upgrade
+          brew untap homebrew/cask
+          brew untap homebrew/core
           brew doctor
           brew tap --verbose modularml/packages
           brew doctor
