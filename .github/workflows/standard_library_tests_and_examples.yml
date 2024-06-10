@@ -47,6 +47,9 @@ jobs:
       - name: update-homebrew
         if: ${{ matrix.os == 'macos-14' }}
         run: |
+          # github preinstall brew is busted.
+          brew untap homebrew/cask
+          brew untap homebrew/core
           brew update
           brew upgrade
           brew uninstall openssl@1.1
@@ -54,7 +57,6 @@ jobs:
           brew uninstall ruby@3.0
 
           brew tap --verbose modularml/packages
-          brew doctor
           brew install modular
 
       - name: Download Modular installer
