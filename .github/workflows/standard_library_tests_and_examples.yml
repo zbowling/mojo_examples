@@ -1,0 +1,109 @@
+
+# ===----------------------------------------------------------------------=== #
+# Copyright (c) 2024, Modular Inc. All rights reserved.
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions:
+# https://llvm.org/LICENSE.txt
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ===----------------------------------------------------------------------=== #
+
+name: Test stdlib and examples
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  test-examples:
+    name: with ${{ matrix.os }} and assertions=${{ matrix.mojo-enable-assertions }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-latest", "macos-14"]
+        mojo-enable-assertions: [0, 1]
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LLVM_VERSION: 17
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Download Modular installer
+        run: |
+          curl -s https://get.modular.com | sh -
+
+      - name: Install nightly Mojo compiler
+        run: |
+          # The <auth_token> of "examples" is arbitrary but something
+          # needs to be provided.
+          modular auth examples
+          modular install nightly/mojo
+
+          # Put Mojo on the PATH
+          echo "MODULAR_HOME=$HOME/.modular" >> $GITHUB_ENV
+
+          echo "$HOME/.modular/pkg/packages.modular.com_nightly_mojo/bin" >> $GITHUB_PATH
+
+      - name: Install build tools (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh ${{env.LLVM_VERSION}}
+
+          # Make common LLVM binaries (including FileCheck) in our PATH so they work when used in an unversioned context
+          # For example, instead of saying `FileCheck-17` which exists in `/usr/bin`, this allows us to just call
+          # FileCheck unqualified.
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${{env.LLVM_VERSION}} 100
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-${{env.LLVM_VERSION}} 100
+          sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${{env.LLVM_VERSION}} 100
+          sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-${{env.LLVM_VERSION}} 100
+          sudo update-alternatives --install /usr/bin/lldb lldb /usr/bin/lldb-${{env.LLVM_VERSION}} 100
+          sudo update-alternatives --install /usr/bin/FileCheck FileCheck /usr/bin/FileCheck-${{env.LLVM_VERSION}} 100
+
+
+          python3 -m pip install lit
+      
+      - name: Install pre-commit
+        run: |
+          pip install pre-commit
+          pre-commit install
+      
+      - name: Run pre-commit
+        # If this step ever gets too slow, we can move the 
+        # pre-commit run to a separate job so that it runs at the
+        # same time as the unit tests.
+        run: pre-commit run --all-files
+
+      - name: Install build tools (macOS)
+        if: ${{ matrix.os == 'macos-14' }}
+        run: |
+          # Install `lit` for use in the tests
+          brew install lit
+
+          # Ensure `FileCheck` from the pre-installed LLVM 15 package is visible
+          echo $(brew --prefix llvm@15)/bin/ >> $GITHUB_PATH
+
+      - name: Run standard library tests and examples
+        env:
+          MOJO_ENABLE_ASSERTIONS_IN_TESTS: ${{ matrix.mojo-enable-assertions }}
+        run: |
+          ./stdlib/scripts/run-tests.sh
+          ./examples/run-examples.sh
